@@ -90,45 +90,20 @@ async def process_consent(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(UserRegistration.waiting_for_name)
 async def process_child_name(message: types.Message, state: FSMContext):
     await state.update_data(child_name=message.text.strip())
-    # Изменено: теперь текст запроса возраста соответствует вашему требованию
-    await message.answer("Очень приятно! Укажите, пожалуйста, возраст малыша.")
+    # Обновленный текст запроса возраста
+    await message.answer("Очень приятно! Укажите, пожалуйста, возраст малыша. (только цифра)")
     await state.set_state(UserRegistration.waiting_for_age)
 
 @dp.message(UserRegistration.waiting_for_age)
 async def process_child_age(message: types.Message, state: FSMContext):
-    raw_age = message.text.strip().lower()
+    raw_age = message.text.strip()
     
-    # Словарь для распознавания текстовых и цифровых вариантов возраста
-    age_mapping = {
-        "1": "1", "один": "1", "годик": "1", "года": "1",
-        "2": "2", "два": "2",
-        "3": "3", "три": "3",
-        "4": "4", "четыре": "4",
-        "5": "5", "пять": "5",
-        "6": "6", "шесть": "6",
-        "7": "7", "семь": "7"
-    }
-    
-    # Пытаемся найти число или слово в словаре
-    matched_age = None
-    for word, digit in age_mapping.items():
-        if word in raw_age:
-            matched_age = digit
-            break
-            
-    # Если не нашли по ключевым словам, пробуем вытащить первую цифру из сообщения
-    if not matched_age:
-        for char in raw_age:
-            if char.isdigit():
-                matched_age = char
-                break
-
-    # Если возраст так и не удалось распознать — вежливо переспрашиваем
-    if not matched_age:
-        await message.answer("Пожалуйста, укажите возраст цифрой или словом (например: 2 или два), чтобы мы подобрали правильные материалы.")
+    # Проверяем, что введенная строка состоит ровно из одной цифры (например, "1", "2", "3", "4", "5")
+    if not (len(raw_age) == 1 and raw_age.isdigit()):
+        await message.answer("Пожалуйста, введите корректное значение — только цифру (например: 3) 🤍")
         return
 
-    child_age = matched_age
+    child_age = raw_age
     data = await state.get_data()
     child_name = data.get("child_name")
     user_id = message.from_user.id
@@ -136,7 +111,6 @@ async def process_child_age(message: types.Message, state: FSMContext):
     add_user(user_id, child_name, child_age)
     await state.clear()
     
-    # Ссылка заменена на module1.khi-knows.ru с сохранением параметров
     personalized_link = f"https://module1.khi-knows.ru/?name={child_name}&age={child_age}"
     
     keyboard = InlineKeyboardBuilder()
