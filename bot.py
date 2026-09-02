@@ -4,6 +4,7 @@ import os
 import sqlite3
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.types import FSInputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -139,15 +140,32 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     
     personalized_link = f"https://module1.khi-knows.ru/?name={child_name}&age={child_age}"
     
+    # Сначала убираем клавиатуру подтверждения у сообщения
+    await callback.message.edit_text("Готово! Создаю персональный доступ... 🤍")
+
+    # Отправляем PDF-инструкцию для родителей
+    try:
+        pdf_file = FSInputFile("instruction.pdf")
+        await bot.send_document(
+            chat_index := user_id, 
+            document=pdf_file, 
+            caption="📄 <b>Инструкция для родителей</b>\nПожалуйста, ознакомьтесь с ней перед началом занятий, чтобы всё прошло максимально комфортно! 🤍",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Не удалось отправить файл инструкции: {e}")
+
+    # Отправляем персональную ссылку на трекер
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🧸 Открыть аудио-трекер", url=personalized_link)
     
     success_text = (
-        f"Готово! Это персональная ссылка для вашего малыша! 🤍\n\n"
+        f"А это персональная ссылка на трекер для вашего малыша! 🤍\n\n"
         "Нажимайте на кнопку ниже, включайте аудио-минутки и веселитесь с удовольствием! 🫂"
     )
-    await callback.message.edit_text(success_text, reply_markup=keyboard.as_markup())
+    await callback.message.answer(success_text, reply_markup=keyboard.as_markup())
     
+    # Предлагаем подписаться на канал
     channel_invite_text = (
         "Это пространство для мам. Здесь вы сможете первыми узнавать об обновлениях, "
         "находить аудио-подкасты от меня, живое общение и поддержку. Подписывайтесь! 👇"
@@ -182,7 +200,7 @@ async def send_broadcast(message: types.Message, state: FSMContext):
             
     await message.answer(f"Рассылка завершена. Успешно отправлено: {count} пользователям.")
 
-# --- Веб-сервер для поддержания работы бота на Render ---
+# --- Веб-сервер для поддержания работы бота ---
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
