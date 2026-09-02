@@ -52,7 +52,7 @@ class UserRegistration(StatesGroup):
     waiting_for_consent = State()
     waiting_for_name = State()
     waiting_for_age = State()
-    waiting_for_confirmation = State() # Новое состояние для проверки перед сохранением
+    waiting_for_confirmation = State()
 
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
@@ -70,7 +70,7 @@ async def cmd_reset(message: types.Message, state: FSMContext):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     welcome_text = (
-        "Приветствую вас! 🤍 Я Татьяна — автор проекта «Бережный английский».\n\n"
+        "Приветствую вас! 🤍 Мы — Служба заботы проекта «Бережный английский».\n\n"
         "Здесь вы можете получить бесплатный доступ к интерактивному аудио-трекеру "
         "для занятий с малышом без слез и зубрежки.\n\n"
         "Прежде чем мы начнем, пожалуйста, подтвердите согласие на обработку персональных данных "
@@ -107,7 +107,7 @@ async def process_child_age(message: types.Message, state: FSMContext):
     data = await state.get_data()
     child_name = data.get("child_name")
     
-    # Шаг подтверждения: показываем сводку перед записью в базу
+    # Шаг подтверждения перед записью в базу данных
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="✅ Все верно, открыть трекер", callback_data="confirm_yes")
     keyboard.button(text="🔄 Ввести заново", callback_data="confirm_no")
