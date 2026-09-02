@@ -70,7 +70,7 @@ async def cmd_reset(message: types.Message, state: FSMContext):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     welcome_text = (
-        "Приветствую вас! 🤍 Мы — Служба заботы проекта «Бережный английский».\n\n"
+        "Приветствую вас! 🤍 Я Татьяна — автор проекта «Бережный английский».\n\n"
         "Здесь вы можете получить бесплатный доступ к интерактивному аудио-трекеру "
         "для занятий с малышом без слез и зубрежки.\n\n"
         "Прежде чем мы начнем, пожалуйста, подтвердите согласие на обработку персональных данных "
@@ -91,14 +91,13 @@ async def process_consent(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(UserRegistration.waiting_for_name)
 async def process_child_name(message: types.Message, state: FSMContext):
     await state.update_data(child_name=message.text.strip())
-    await message.answer("Очень приятно! Укажите, пожалуйста, возраст малыша. (только цифра)")
+    await message.answer("Очень приятно! Укажите, пожалуйста, возраст малыша.")
     await state.set_state(UserRegistration.waiting_for_age)
 
 @dp.message(UserRegistration.waiting_for_age)
 async def process_child_age(message: types.Message, state: FSMContext):
     raw_age = message.text.strip()
     
-    # Строгая проверка: введена ровно одна цифра
     if not (len(raw_age) == 1 and raw_age.isdigit()):
         await message.answer("Пожалуйста, введите корректное значение — только цифру (например: 3) 🤍")
         return
@@ -107,7 +106,6 @@ async def process_child_age(message: types.Message, state: FSMContext):
     data = await state.get_data()
     child_name = data.get("child_name")
     
-    # Шаг подтверждения перед записью в базу данных
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="✅ Все верно, открыть трекер", callback_data="confirm_yes")
     keyboard.button(text="🔄 Ввести заново", callback_data="confirm_no")
@@ -136,7 +134,6 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     child_age = data.get("child_age")
     user_id = callback.from_user.id
     
-    # Сохраняем в базу только после подтверждения
     add_user(user_id, child_name, child_age)
     await state.clear()
     
@@ -146,14 +143,14 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     keyboard.button(text="🧸 Открыть аудио-трекер", url=personalized_link)
     
     success_text = (
-        f"Готово! Мы создали персональное пространство для малыша.\n\n"
+        f"Готово! Это персональная ссылка для вашего малыша! 🤍\n\n"
         "Нажимайте на кнопку ниже, включайте аудио-минутки и веселитесь с удовольствием! 🫂"
     )
     await callback.message.edit_text(success_text, reply_markup=keyboard.as_markup())
     
     channel_invite_text = (
-        "А это наше пространство для мам — здесь вы первыми узнаете об обновлениях, "
-        "найдете аудио-подкасты от меня, живое общение и поддержку. Подписывайтесь! 👇"
+        "Это пространство для мам. Здесь вы сможете первыми узнавать об обновлениях, "
+        "находить аудио-подкасты от меня, живое общение и поддержку. Подписывайтесь! 👇"
     )
     channel_keyboard = InlineKeyboardBuilder()
     channel_keyboard.button(text="🤍 Перейти в Telegram-канал", url="https://t.me/khi_knows")
