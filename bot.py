@@ -52,6 +52,7 @@ class UserRegistration(StatesGroup):
     waiting_for_consent = State()
     waiting_for_name = State()
     waiting_for_age = State()
+    waiting_for_confirmation = State() # Новое состояние для проверки перед сохранением
 
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
@@ -90,7 +91,6 @@ async def process_consent(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(UserRegistration.waiting_for_name)
 async def process_child_name(message: types.Message, state: FSMContext):
     await state.update_data(child_name=message.text.strip())
-    # Обновленный текст запроса возраста
     await message.answer("Очень приятно! Укажите, пожалуйста, возраст малыша. (только цифра)")
     await state.set_state(UserRegistration.waiting_for_age)
 
@@ -98,16 +98,45 @@ async def process_child_name(message: types.Message, state: FSMContext):
 async def process_child_age(message: types.Message, state: FSMContext):
     raw_age = message.text.strip()
     
-    # Проверяем, что введенная строка состоит ровно из одной цифры (например, "1", "2", "3", "4", "5")
+    # Строгая проверка: введена ровно одна цифра
     if not (len(raw_age) == 1 and raw_age.isdigit()):
         await message.answer("Пожалуйста, введите корректное значение — только цифру (например: 3) 🤍")
         return
 
-    child_age = raw_age
+    await state.update_data(child_age=raw_age)
     data = await state.get_data()
     child_name = data.get("child_name")
-    user_id = message.from_user.id
     
+    # Шаг подтверждения: показываем сводку перед записью в базу
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="✅ Все верно, открыть трекер", callback_data="confirm_yes")
+    keyboard.button(text="🔄 Ввести заново", callback_data="confirm_no")
+    keyboard.adjust(1)
+    
+    confirm_text = (
+        f"Давайте проверим данные:\n\n"
+        f"👶 Малыш: <b>{child_name}</b>\n"
+        f"🎂 Возраст: <b>{raw_age}</b>\n\n"
+        f"Всё верно?"
+    )
+    
+    await message.answer(confirm_text, reply_markup=keyboard.as_markup(), parse_mode="HTML")
+    await state.set_state(UserRegistration.waiting_for_confirmation)
+
+@dp.callback_query(UserRegistration.waiting_for_confirmation, F.data == "confirm_no")
+async def process_confirmation_no(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(UserRegistration.waiting_for_name)
+    await callback.message.edit_text("Хорошо, давайте начнем сначала. Как зовут малыша?")
+    await callback.answer()
+
+@dp.callback_query(UserRegistration.waiting_for_confirmation, F.data == "confirm_yes")
+async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    child_name = data.get("child_name")
+    child_age = data.get("child_age")
+    user_id = callback.from_user.id
+    
+    # Сохраняем в базу только после подтверждения
     add_user(user_id, child_name, child_age)
     await state.clear()
     
@@ -120,7 +149,7 @@ async def process_child_age(message: types.Message, state: FSMContext):
         f"Готово! Мы создали персональное пространство для малыша.\n\n"
         "Нажимайте на кнопку ниже, включайте аудио-минутки и веселитесь с удовольствием! 🫂"
     )
-    await message.answer(success_text, reply_markup=keyboard.as_markup(), parse_mode="HTML")
+    await callback.message.edit_text(success_text, reply_markup=keyboard.as_markup())
     
     channel_invite_text = (
         "А это наше пространство для мам — здесь вы первыми узнаете об обновлениях, "
@@ -128,7 +157,8 @@ async def process_child_age(message: types.Message, state: FSMContext):
     )
     channel_keyboard = InlineKeyboardBuilder()
     channel_keyboard.button(text="🤍 Перейти в Telegram-канал", url="https://t.me/khi_knows")
-    await message.answer(channel_invite_text, reply_markup=channel_keyboard.as_markup())
+    await callback.message.answer(channel_invite_text, reply_markup=channel_keyboard.as_markup())
+    await callback.answer()
 
 @dp.message(Command("broadcast"))
 async def start_broadcast(message: types.Message, state: FSMContext):
@@ -155,7 +185,7 @@ async def send_broadcast(message: types.Message, state: FSMContext):
             
     await message.answer(f"Рассылка завершена. Успешно отправлено: {count} пользователям.")
 
-# Веб-сервер для поддержания работы бота на бесплатном Web Service
+# --- Веб-сервер для поддержания работы бота на Render ---
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
@@ -167,11 +197,15 @@ async def start_web_server():
     port = int(os.getenv("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    logging.info(f"Web server started on port {port}")
 
+# --- Параллельный запуск веб-сервера и бота ---
 async def main():
     init_db()
-    await start_web_server()
-    await dp.start_polling(bot)
+    await asyncio.gather(
+        start_web_server(),
+        dp.start_polling(bot)
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
