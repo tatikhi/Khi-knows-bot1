@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -9,9 +10,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Безопасное чтение токена и ID из переменных окружения
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # Значение по умолчанию или из настроек Render
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 logging.basicConfig(level=logging.INFO)
 
@@ -94,9 +94,7 @@ async def process_child_age(message: types.Message, state: FSMContext):
     child_name = data.get("child_name")
     user_id = message.from_user.id
     
-    # Сохраняем пользователя в базу данных
     add_user(user_id, child_name, child_age)
-    
     await state.clear()
     
     personalized_link = f"https://khi-knows.ru/?name={child_name}&age={child_age}"
@@ -118,14 +116,13 @@ async def process_child_age(message: types.Message, state: FSMContext):
     channel_keyboard.button(text="🤍 Перейти в Telegram-канал", url="https://t.me/khi_knows")
     await message.answer(channel_invite_text, reply_markup=channel_keyboard.as_markup())
 
-# --- АДМИНСКАЯ РАССЫЛКА НОВОСТЕЙ И ОБНОВЛЕНИЙ ---
 @dp.message(Command("broadcast"))
 async def start_broadcast(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         await message.answer("У вас нет прав для этой команды.")
         return
     
-    await message.answer("Введите текст рассылки для всех пользователей бота (о выходе новых модулей или материалов):")
+    await message.answer("Введите текст рассылки для всех пользователей бота:")
     await state.set_state(BroadcastState.waiting_for_message)
 
 @dp.message(BroadcastState.waiting_for_message)
@@ -144,8 +141,22 @@ async def send_broadcast(message: types.Message, state: FSMContext):
             
     await message.answer(f"Рассылка завершена. Успешно отправлено: {count} пользователям.")
 
+# Веб-сервер для поддержания работы бота на бесплатном Web Service
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 async def main():
     init_db()
+    await start_web_server()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
