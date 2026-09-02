@@ -60,6 +60,12 @@ bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+# --- КОМАНДА СБРОСА ДЛЯ ТЕСТИРОВАНИЯ ---
+@dp.message(Command("reset"))
+async def cmd_reset(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Состояние сброшено! Теперь можете отправить /start и пройти тест заново.")
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     welcome_text = (
