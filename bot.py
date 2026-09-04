@@ -84,6 +84,16 @@ def get_users_count():
     conn.close()
     return count
 
+# --- ФОНОВАЯ ЗАДАЧА: АВТО-ПИНГ БАЗЫ РАЗ В 24 ЧАСА (ЗАЩИТА ОТ ЗАСЫПАНИЯ) ---
+async def keep_db_alive():
+    while True:
+        await asyncio.sleep(86400)  # Пауза 24 часа (86400 секунд)
+        try:
+            get_users_count()
+            logging.info("Auto-ping: База данных Supabase активна 🟢")
+        except Exception as e:
+            logging.error(f"Auto-ping error: {e}")
+
 # --- СОСТОЯНИЯ ДИАЛОГОВ ---
 class UserRegistration(StatesGroup):
     waiting_for_consent = State()
@@ -260,9 +270,10 @@ async def start_web_server():
     await site.start()
     logging.info(f"Web server started on port {port}")
 
-# --- Параллельный запуск веб-сервера и бота ---
+# --- Параллельный запуск веб-сервера, авто-пинга и бота ---
 async def main():
     init_db()
+    asyncio.create_task(keep_db_alive())  # Фоновый пинг базы данных раз в 24 часа
     await asyncio.gather(
         start_web_server(),
         dp.start_polling(bot)
@@ -270,3 +281,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
