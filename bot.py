@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import psycopg2
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.types import FSInputFile
@@ -13,46 +14,73 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 logging.basicConfig(level=logging.INFO)
 
-# --- РАБОТА С БАЗОЙ ДАННЫХ ---
+# --- РАБОТА С БАЗОЙ ДАННЫХ (PostgreSQL / SQLite) ---
+def get_db_connection():
+    if DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return sqlite3.connect("bot_users.db")
+
 def init_db():
-    conn = sqlite3.connect("bot_users.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            child_name TEXT,
-            child_age TEXT
-        )
-    """)
+    if DATABASE_URL:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                child_name TEXT,
+                child_age TEXT
+            )
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                child_name TEXT,
+                child_age TEXT
+            )
+        """)
     conn.commit()
+    cursor.close()
     conn.close()
 
 def add_user(user_id, child_name, child_age):
-    conn = sqlite3.connect("bot_users.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR REPLACE INTO users (user_id, child_name, child_age) 
-        VALUES (?, ?, ?)
-    """, (user_id, child_name, child_age))
+    if DATABASE_URL:
+        cursor.execute("""
+            INSERT INTO users (user_id, child_name, child_age) 
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE 
+            SET child_name = EXCLUDED.child_name, child_age = EXCLUDED.child_age
+        """, (user_id, child_name, child_age))
+    else:
+        cursor.execute("""
+            INSERT OR REPLACE INTO users (user_id, child_name, child_age) 
+            VALUES (?, ?, ?)
+        """, (user_id, child_name, child_age))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_all_users():
-    conn = sqlite3.connect("bot_users.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT user_id FROM users")
     users = cursor.fetchall()
+    cursor.close()
     conn.close()
     return [user[0] for user in users]
 
 def get_users_count():
-    conn = sqlite3.connect("bot_users.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
     count = cursor.fetchone()[0]
+    cursor.close()
     conn.close()
     return count
 
