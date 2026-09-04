@@ -48,6 +48,14 @@ def get_all_users():
     conn.close()
     return [user[0] for user in users]
 
+def get_users_count():
+    conn = sqlite3.connect("bot_users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 # --- СОСТОЯНИЯ ДИАЛОГОВ ---
 class UserRegistration(StatesGroup):
     waiting_for_consent = State()
@@ -140,14 +148,12 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     
     personalized_link = f"https://module1.khi-knows.ru/?name={child_name}&age={child_age}"
     
-    # Сначала убираем клавиатуру подтверждения у сообщения
     await callback.message.edit_text("Готово! Создаю персональный доступ... 🤍")
 
-    # Отправляем PDF-инструкцию для родителей
     try:
         pdf_file = FSInputFile("instruction.pdf")
         await bot.send_document(
-            chat_index := user_id, 
+            chat_id=user_id, 
             document=pdf_file, 
             caption="📄 <b>Инструкция для родителей</b>\nПожалуйста, ознакомьтесь с ней перед началом занятий, чтобы всё прошло максимально комфортно! 🤍",
             parse_mode="HTML"
@@ -155,7 +161,6 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     except Exception as e:
         logging.error(f"Не удалось отправить файл инструкции: {e}")
 
-    # Отправляем персональную ссылку на трекер
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🧸 Открыть аудио-трекер", url=personalized_link)
     
@@ -165,7 +170,6 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     )
     await callback.message.answer(success_text, reply_markup=keyboard.as_markup())
     
-    # Предлагаем подписаться на канал
     channel_invite_text = (
         "Это пространство для мам. Здесь вы сможете первыми узнавать об обновлениях, "
         "находить аудио-подкасты от меня, живое общение и поддержку. Подписывайтесь! 👇"
@@ -174,6 +178,20 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     channel_keyboard.button(text="🤍 Перейти в Telegram-канал", url="https://t.me/khi_knows")
     await callback.message.answer(channel_invite_text, reply_markup=channel_keyboard.as_markup())
     await callback.answer()
+
+# --- КОМАНДЫ АДМИНИСТРАТОРА ---
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("У вас нет прав для выполнения этой команды.")
+        return
+
+    total_users = get_users_count()
+    await message.answer(
+        f"📊 <b>Статистика бота:</b>\n\n"
+        f"👤 Зарегистрировано пользователей в базе: <b>{total_users}</b>",
+        parse_mode="HTML"
+    )
 
 @dp.message(Command("broadcast"))
 async def start_broadcast(message: types.Message, state: FSMContext):
