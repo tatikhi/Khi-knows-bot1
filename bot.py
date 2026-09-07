@@ -208,9 +208,11 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     )
     await callback.message.answer(success_text, reply_markup=keyboard.as_markup())
     
+    # ОБНОВЛЕННЫЙ ТЕКСТ ПРИГЛАШЕНИЯ
     channel_invite_text = (
-        "Это пространство для мам. Здесь вы сможете первыми узнавать об обновлениях, "
-        "находить аудио-подкасты от меня, живое общение и поддержку. Подписывайтесь! 👇"
+        "А еще я знаю, как важно в этом деле иметь поддержку и единомышленников, "
+        "чтобы не бросить через три дня. В моем Telegram-канале мамы делятся успехами и задают вопросы. "
+        "Присоединяйтесь к нашему уютному пространству! 🫂👇"
     )
     channel_keyboard = InlineKeyboardBuilder()
     channel_keyboard.button(text="🤍 Перейти в Telegram-канал", url="https://t.me/khi_knows")
@@ -274,6 +276,10 @@ async def start_web_server():
 async def main():
     init_db()
     asyncio.create_task(keep_db_alive())  # Фоновый пинг базы данных раз в 24 часа
+    
+    # Удаление Webhook перед стартом (если он завис)
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     await asyncio.gather(
         start_web_server(),
         dp.start_polling(bot)
@@ -281,4 +287,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
