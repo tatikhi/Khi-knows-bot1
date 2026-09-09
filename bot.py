@@ -3,6 +3,7 @@ import logging
 import os
 import sqlite3
 import psycopg2
+from datetime import datetime, timedelta
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.types import FSInputFile
@@ -32,15 +33,21 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY,
                 child_name TEXT,
-                child_age TEXT
+                child_age TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                donation_sent BOOLEAN DEFAULT FALSE
             )
         """)
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS donation_sent BOOLEAN DEFAULT FALSE;")
     else:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 child_name TEXT,
-                child_age TEXT
+                child_age TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                donation_sent BOOLEAN DEFAULT FALSE
             )
         """)
     conn.commit()
@@ -52,16 +59,16 @@ def add_user(user_id, child_name, child_age):
     cursor = conn.cursor()
     if DATABASE_URL:
         cursor.execute("""
-            INSERT INTO users (user_id, child_name, child_age) 
-            VALUES (%s, %s, %s)
+            INSERT INTO users (user_id, child_name, child_age, created_at, donation_sent) 
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, FALSE)
             ON CONFLICT (user_id) DO UPDATE 
             SET child_name = EXCLUDED.child_name, child_age = EXCLUDED.child_age
         """, (user_id, child_name, child_age))
     else:
         cursor.execute("""
-            INSERT OR REPLACE INTO users (user_id, child_name, child_age) 
-            VALUES (?, ?, ?)
-        """, (user_id, child_name, child_age))
+            INSERT OR REPLACE INTO users (user_id, child_name, child_age, created_at, donation_sent) 
+            VALUES (?, ?, ?, COALESCE((SELECT created_at FROM users WHERE user_id = ?), CURRENT_TIMESTAMP), FALSE)
+        """, (user_id, child_name, child_age, user_id))
     conn.commit()
     cursor.close()
     conn.close()
@@ -84,15 +91,72 @@ def get_users_count():
     conn.close()
     return count
 
-# --- ФОНОВАЯ ЗАДАЧА: АВТО-ПИНГ БАЗЫ РАЗ В 24 ЧАСА (ЗАЩИТА ОТ ЗАСЫПАНИЯ) ---
+def get_users_for_donation_reminder():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    target_date = datetime.now() - timedelta(days=5)
+    
+    if DATABASE_URL:
+        cursor.execute("""
+            SELECT user_id FROM users 
+            WHERE created_at <= %s AND (donation_sent IS NULL OR donation_sent = FALSE)
+        """, (target_date,))
+    else:
+        cursor.execute("""
+            SELECT user_id FROM users 
+            WHERE created_at <= ? AND (donation_sent IS NULL OR donation_sent = 0)
+        """, (target_date.strftime('%Y-%m-%d %H:%M:%S'),))
+        
+    users = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return [user[0] for user in users]
+
+def mark_donation_sent(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("UPDATE users SET donation_sent = TRUE WHERE user_id = %s", (user_id,))
+    else:
+        cursor.execute("UPDATE users SET donation_sent = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# --- ФОНОВЫЕ ЗАДАЧИ ---
 async def keep_db_alive():
     while True:
-        await asyncio.sleep(86400)  # Пауза 24 часа (86400 секунд)
+        await asyncio.sleep(86400)  # Пауза 24 часа
         try:
             get_users_count()
             logging.info("Auto-ping: База данных Supabase активна 🟢")
         except Exception as e:
             logging.error(f"Auto-ping error: {e}")
+
+async def check_donations_reminder():
+    """Фоновая задача: проверяет раз в час, кому пора отправить напоминание о донате (через 5 дней)"""
+    while True:
+        await asyncio.sleep(3600)  # Проверка каждый час
+        try:
+            users_to_notify = get_users_for_donation_reminder()
+            for user_id in users_to_notify:
+                try:
+                    donation_text = (
+                        "Привет! 🤍 Прошло 5 дней с начала наших занятий. "
+                        "Надеюсь, аудио-минутки помогают вам легко и без слез знакомить малыша с английским.\n\n"
+                        "Этот проект задумывался как полностью бесплатный и доступный для каждой мамы. "
+                        "Если он оказался вам полезен и хочется сказать мне спасибо — вы можете поддержать выход новых материалов по ссылке ниже. Спасибо, что вы со мной! 🧸👇"
+                    )
+                    keyboard = InlineKeyboardBuilder()
+                    keyboard.button(text="поддержать выход нового материала🤍", url="https://pay.cloudtips.ru/p/18ecc58e")
+                    
+                    await bot.send_message(user_id, donation_text, reply_markup=keyboard.as_markup())
+                    mark_donation_sent(user_id)
+                    await asyncio.sleep(0.05)
+                except Exception as e:
+                    logging.error(f"Не удалось отправить напоминание о донате пользователю {user_id}: {e}")
+        except Exception as e:
+            logging.error(f"Ошибка в фоновой задаче донатов: {e}")
 
 # --- СОСТОЯНИЯ ДИАЛОГОВ ---
 class UserRegistration(StatesGroup):
@@ -208,7 +272,6 @@ async def process_confirmation_yes(callback: types.CallbackQuery, state: FSMCont
     )
     await callback.message.answer(success_text, reply_markup=keyboard.as_markup())
     
-    # ОБНОВЛЕННЫЙ ТЕКСТ ПРИГЛАШЕНИЯ
     channel_invite_text = (
         "А еще я знаю, как важно в этом деле иметь поддержку и единомышленников, "
         "чтобы не бросить через три дня. В моем Telegram-канале мамы делятся успехами и задают вопросы. "
@@ -272,10 +335,11 @@ async def start_web_server():
     await site.start()
     logging.info(f"Web server started on port {port}")
 
-# --- Параллельный запуск веб-сервера, авто-пинга и бота ---
+# --- Параллельный запуск веб-сервера, авто-пинга, проверки донатов и бота ---
 async def main():
     init_db()
-    asyncio.create_task(keep_db_alive())  # Фоновый пинг базы данных раз в 24 часа
+    asyncio.create_task(keep_db_alive())         # Авто-пинг базы раз в 24 часа
+    asyncio.create_task(check_donations_reminder()) # Фоновая проверка отправки доната раз в час
     
     # Удаление Webhook перед стартом (если он завис)
     await bot.delete_webhook(drop_pending_updates=True)
